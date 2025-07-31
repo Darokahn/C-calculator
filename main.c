@@ -89,6 +89,7 @@ bool isOperator(char* input, int* length) {
 }
 
 bool isValue(char* input, int* length) {
+    *length = 0;
     if (!isdigit(*input)) return false;
     input++;
     (*length)++;
@@ -102,9 +103,16 @@ bool isValue(char* input, int* length) {
 int tokenizeString(char* input, struct token* tokens, int maxTokenLength) {
     int index = 0;
     int length;
+    int wholeValue;
+    int fractionalValue;
+    int fractionalLength;
+    int operator;
+    int denominator;
     while (*input != '\0') {
-        while (isspace(*input)) 
+        if (isspace(*input)) {
             input++;
+            continue;
+        }
         if (*input == '(') {
             if (index == maxTokenLength) return -1;
             tokens[index++] = (struct token) {PARENTHESES_OPEN, 0};
@@ -123,7 +131,7 @@ int tokenizeString(char* input, struct token* tokens, int maxTokenLength) {
         }
         else if (isOperator(input, &length)) {
             if (index == maxTokenLength) return -1;
-            int operator = *input;
+            operator = *input;
             if (operator >= '/') 
                 operator--;
             if (operator >= '-') 
@@ -134,8 +142,31 @@ int tokenizeString(char* input, struct token* tokens, int maxTokenLength) {
         }
         else if (isValue(input, &length)) {
             if (index == maxTokenLength) return -1;
-            tokens[index++] = (struct token) {VALUE, atoi(input)};
+            wholeValue = atoi(input);
             input += length;
+            if (*input == '.') {
+                denominator = 1;
+                input++;
+                if (!isValue(input, &length)) return -1;
+                fractionalValue = atoi(input);
+                input += length;
+                fractionalLength = length;
+                while (fractionalLength) {
+                    wholeValue *= 10;
+                    denominator *= 10;
+                    fractionalLength--;
+                }
+                wholeValue += fractionalValue;
+                if (maxTokenLength - index < 5) return -1;
+                tokens[index++] = (struct token) {PARENTHESES_OPEN, 0};
+                tokens[index++] = (struct token) {VALUE, wholeValue};
+                tokens[index++] = (struct token) {OPERATOR, DIV};
+                tokens[index++] = (struct token) {VALUE, denominator};
+                tokens[index++] = (struct token) {PARENTHESES_CLOSE, 0};
+            }
+            else {
+                tokens[index++] = (struct token) {VALUE, wholeValue};
+            }
         }
         else return -1;
     }
@@ -157,7 +188,6 @@ enum equality compareOrder(struct token operator1, struct token operator2) {
 }
 
 uint8_t* copyOperation(uint8_t* outBuffer, enum OPERATORTYPE operation) {
-    memcpy(outBuffer, doOperation, sizeof(doOperation));
     uint16_t instruction;
     if (operation == MUL) {
         instruction = 0xe3f7;
@@ -169,8 +199,12 @@ uint8_t* copyOperation(uint8_t* outBuffer, enum OPERATORTYPE operation) {
         instruction = 0xd829;
     }
     else if (operation == DIV) {
+        *outBuffer++ = 0x48;
+        *outBuffer++ = 0x31;
+        *outBuffer++ = 0xd2;
         instruction = 0xf3f7;
     }
+    memcpy(outBuffer, doOperation, sizeof(doOperation));
     outBuffer += 3;
     *(uint16_t*)outBuffer = instruction;
     outBuffer += sizeof(doOperation) - 3;
@@ -182,6 +216,7 @@ void* makeFunction(char* string, uint8_t* outBuffer) {
     struct token operatorStack[128];
     int index = 0;
     int length = tokenizeString(string, tokens, 128);
+    if (length < 0) return NULL;
     uint8_t* ptr = outBuffer;
 
     struct token t;
@@ -219,6 +254,7 @@ void* makeFunction(char* string, uint8_t* outBuffer) {
                 break;
             default:
                 printf("PANIC in makeFunction switch (t.type): default case should be unreachable. have %d as t.type\n", t.type);
+                return NULL;
         }
     }
     while (index > 0) {
@@ -231,9 +267,14 @@ void* makeFunction(char* string, uint8_t* outBuffer) {
 }
 
 int main() {
+    char input[1024];
+    strcpy(input, "2 * 4.5 + 1.6");
+    //fgets(input, sizeof(input), stdin);
     commonBuffer = mmap(NULL, getpagesize(), PROT_READ | PROT_EXEC | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, 0, 0);
     uint8_t* start = commonBuffer;
     f_x myfunc = (f_x) start;
-    start = makeFunction("(5 + 6) * x - 2 * 3", (uint8_t*) myfunc);
-    printf("%d\n", myfunc(1));
+    start = makeFunction(input, (uint8_t*) myfunc);
+    for (int i = 0; i < 25; i++) {
+        printf("f(%d) = %d\n", i, myfunc(i));
+    }
 }
