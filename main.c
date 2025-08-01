@@ -115,6 +115,9 @@ int tokenizeString(char* input, struct token* tokens, int maxTokenLength) {
         }
         if (*input == '(') {
             if (index == maxTokenLength) return -1;
+            if (tokens[index-1].type == VALUE) {
+                tokens[index++] = (struct token) {OPERATOR, MUL};
+            }
             tokens[index++] = (struct token) {PARENTHESES_OPEN, 0};
             input += 1;
         }
@@ -126,6 +129,9 @@ int tokenizeString(char* input, struct token* tokens, int maxTokenLength) {
         else if (isName(input, &length)) {
             // for now, only support x and assume all valid names are x.
             if (index == maxTokenLength) return -1;
+            if (tokens[index-1].type == VALUE) {
+                tokens[index++] = (struct token) {OPERATOR, MUL};
+            }
             tokens[index++] = (struct token) {NAME, 0};
             input += length;
         }
@@ -268,8 +274,9 @@ void* makeFunction(char* string, uint8_t* outBuffer) {
 
 int main() {
     char input[1024];
-    strcpy(input, "2 * 4.5 + 1.6");
-    //fgets(input, sizeof(input), stdin);
+    //strcpy(input, "2 * 4.5 + 1.6");
+    printf("Enter an expression in terms of x.\n");
+    fgets(input, sizeof(input), stdin);
     commonBuffer = mmap(NULL, getpagesize(), PROT_READ | PROT_EXEC | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, 0, 0);
     uint8_t* start = commonBuffer;
     f_x myfunc = (f_x) start;
