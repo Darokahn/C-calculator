@@ -264,10 +264,48 @@ int toPostfix(struct token* tokens, int length) { // no maxLength parameter. Pos
     return writeIndex;
 }
 
+int64_t calculate(struct token op1, struct token op2, struct token operator) {
+    // Cannot return an error value with transparency on whether it is a valid return.
+    // Would like to validate that the arguments have the right type tag, but cannot meaningfully return an error.
+    // Could use an error-out param or a struct return, but for simplicity, just use the function correctly.
+    switch (operator.value) {
+        case ADD:
+            return op1.value + op2.value;
+        case SUB:
+            return op1.value - op2.value;
+        case MUL:
+            return op1.value * op2.value;
+        case DIV:
+            return op1.value / op2.value; // This case should not trigger but will be included for thoroughness.
+    }
+}
+
+int foldConstants(struct token* tokens, int length) {
+    int readIndex = 1;
+    int writeIndex = 0;
+    struct token t;
+    for (0; readIndex < length; readIndex++) {
+        t = tokens[readIndex];
+        if (t.type == OPERATOR && tokens[writeIndex].type == VALUE && tokens[writeIndex-1].type == VALUE) {
+            writeIndex--;
+            tokens[writeIndex].value = calculate(tokens[writeIndex], tokens[writeIndex+1], tokens[readIndex]);
+        }
+        else {
+            writeIndex++;
+            if (writeIndex != readIndex) {
+                tokens[writeIndex] = tokens[readIndex];
+            }
+        }
+    }
+    return writeIndex+1;
+}
+
 void* makeFunction(char* string, uint8_t* outBuffer) {
     struct token tokens[128];
     int length = tokenizeString(string, tokens, 128);
     length = toPostfix(tokens, length);
+    length = foldConstants(tokens, length);
+    printf("Final postfix length: %d\n", length);
     if (length < 0) return NULL;
     uint8_t* ptr = outBuffer;
 
@@ -310,9 +348,9 @@ void* makeFunction(char* string, uint8_t* outBuffer) {
 
 int main() {
     char input[1024];
-    //strcpy(input, "2 * 4.5 + 1.6");
+    strcpy(input, "x + 9 * 9 + 9 - 100 + 300 - 1 * 40");
     printf("Enter an expression in terms of x.\n");
-    fgets(input, sizeof(input), stdin);
+    //fgets(input, sizeof(input), stdin);
     commonBuffer = mmap(NULL, getpagesize(), PROT_READ | PROT_EXEC | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, 0, 0);
     uint8_t* start = commonBuffer;
     f_x myfunc = (f_x) start;
