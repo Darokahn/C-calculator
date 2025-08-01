@@ -22,7 +22,7 @@ enum TOKENTYPE {
 
 struct token {
     enum TOKENTYPE type;
-    int value;
+    uint64_t value;
 };
 
 enum OPERATORTYPE {
@@ -42,6 +42,7 @@ enum INSTRUCTIONTYPE {
     ADDR,
     SUBR,
     DIVR,
+    MOVABSR1,
     RET
 };
 
@@ -55,6 +56,7 @@ struct instruction instructions[] = {
     {{0x48, 0x01, 0xD8}, 3},       // add %rbx, %rax
     {{0x48, 0x29, 0xD8}, 3},       // sub %rbx, %rax
     {{0x48, 0xF7, 0xF3}, 3},       // div %rbx
+    {{0x48, 0xb8, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}, 10}, // movabs const, reg
     {{0xc3}, 1}                    // ret
 };
 
@@ -65,7 +67,7 @@ uint8_t doOperation[] = {
     0x50
 };
 
-typedef uint64_t (*f_x)(int);
+typedef int64_t (*f_x)(int);
 
 bool isName(char* input, int* length) {
     *length = 0;
@@ -103,8 +105,8 @@ bool isValue(char* input, int* length) {
 int tokenizeString(char* input, struct token* tokens, int maxTokenLength) {
     int index = 0;
     int length;
-    int wholeValue;
-    int fractionalValue;
+    int64_t wholeValue;
+    int64_t fractionalValue;
     int fractionalLength;
     int operator;
     int denominator;
@@ -148,13 +150,13 @@ int tokenizeString(char* input, struct token* tokens, int maxTokenLength) {
         }
         else if (isValue(input, &length)) {
             if (index == maxTokenLength) return -1;
-            wholeValue = atoi(input);
+            wholeValue = atoll(input);
             input += length;
             if (*input == '.') {
                 denominator = 1;
                 input++;
                 if (!isValue(input, &length)) return -1;
-                fractionalValue = atoi(input);
+                fractionalValue = atoll(input);
                 input += length;
                 fractionalLength = length;
                 while (fractionalLength) {
@@ -252,7 +254,7 @@ int toPostfix(struct token* tokens, int length) { // no maxLength parameter. Pos
                 tokens[writeIndex++] = t;
                 break;
             default:
-                printf("PANIC in makeFunction switch (t.type): default case should be unreachable. have %d as t.type\n", t.type);
+                printf("PANIC in toPostfix switch (t.type): default case should be unreachable. have %d as t.type\n", t.type);
         }
     }
     while (operatorStackIndex > 0) {
@@ -274,10 +276,20 @@ void* makeFunction(char* string, uint8_t* outBuffer) {
         t = tokens[i];
         switch (t.type) {
             case VALUE:
-                memcpy(ptr, instructions[PUSHCONST].bytes, instructions[PUSHCONST].length);
-                ptr++;
-                *(uint32_t*) ptr = t.value;
-                ptr += sizeof(uint32_t);
+                if ((int64_t) t.value != (int32_t) t.value) {
+                    memcpy(ptr, instructions[MOVABSR1].bytes, instructions[MOVABSR1].length);
+                    ptr += 2; // align with constant start
+                    *(uint64_t*) ptr = t.value;
+                    ptr += sizeof(uint64_t);
+                    memcpy(ptr, instructions[PUSHR1].bytes, instructions[PUSHR1].length);
+                    ptr += instructions[PUSHR1].length;
+                }
+                else {
+                    memcpy(ptr, instructions[PUSHCONST].bytes, instructions[PUSHCONST].length);
+                    ptr++; // align with constant start
+                    *(uint32_t*) ptr = t.value;
+                    ptr += sizeof(uint32_t);
+                }
                 break;
             case OPERATOR:
                 ptr = copyOperation(ptr, t.value);
@@ -306,6 +318,6 @@ int main() {
     f_x myfunc = (f_x) start;
     start = makeFunction(input, (uint8_t*) myfunc);
     for (int i = 0; i < 25; i++) {
-        printf("f(%ld) = %d\n", i, myfunc(i));
+        printf("f(%d) = %lu\n", i, myfunc(i));
     }
 }
