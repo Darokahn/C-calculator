@@ -65,7 +65,7 @@ uint8_t doOperation[] = {
     0x50
 };
 
-typedef int (*f_x)(int);
+typedef uint64_t (*f_x)(int);
 
 bool isName(char* input, int* length) {
     *length = 0;
@@ -177,11 +177,55 @@ uint8_t* copyOperation(uint8_t* outBuffer, enum OPERATORTYPE operation) {
     return outBuffer;
 }
 
+int toPostfix(struct token* tokens, int length) { // no maxLength parameter. Postfix is never longer than infix.
+    struct token t;
+    int writeIndex = 0;
+    int readIndex = 0;
+    struct token operatorStack[128];
+    int operatorStackIndex = 0;
+    for (readIndex = 0; readIndex < length; readIndex++) {
+        t = tokens[readIndex];
+        switch (t.type) {
+            case VALUE:
+                tokens[writeIndex++] = t;
+                break;
+            case OPERATOR:
+                while (operatorStackIndex >= 1 && compareOrder(t, operatorStack[operatorStackIndex-1]) >= EQUAL && operatorStack[operatorStackIndex-1].type != PARENTHESES_OPEN) {
+                    tokens[writeIndex++] = operatorStack[operatorStackIndex-1];
+                    operatorStackIndex--;
+                }
+                operatorStack[operatorStackIndex] = t;
+                operatorStackIndex++;
+                break;
+            case PARENTHESES_OPEN:
+                operatorStack[operatorStackIndex] = t;
+                operatorStackIndex++;
+                break;
+            case PARENTHESES_CLOSE:
+                while (operatorStack[operatorStackIndex-1].type != PARENTHESES_OPEN) {
+                    tokens[writeIndex++] = operatorStack[operatorStackIndex-1];
+                    operatorStackIndex--;
+                }
+                operatorStackIndex--;
+                break;
+            case NAME:
+                tokens[writeIndex++] = t;
+                break;
+            default:
+                printf("PANIC in makeFunction switch (t.type): default case should be unreachable. have %d as t.type\n", t.type);
+        }
+    }
+    while (operatorStackIndex > 0) {
+        tokens[writeIndex++] = operatorStack[operatorStackIndex-1];
+        operatorStackIndex--;
+    }
+    return writeIndex;
+}
+
 void* makeFunction(char* string, uint8_t* outBuffer) {
     struct token tokens[128];
-    struct token operatorStack[128];
-    int index = 0;
     int length = tokenizeString(string, tokens, 128);
+    length = toPostfix(tokens, length);
     uint8_t* ptr = outBuffer;
 
     struct token t;
@@ -195,23 +239,7 @@ void* makeFunction(char* string, uint8_t* outBuffer) {
                 ptr += sizeof(uint32_t);
                 break;
             case OPERATOR:
-                while (compareOrder(t, operatorStack[index-1]) >= EQUAL && index >= 1 && operatorStack[index-1].type != PARENTHESES_OPEN) {
-                    ptr = copyOperation(ptr, operatorStack[index-1].value);
-                    index--;
-                }
-                operatorStack[index] = t;
-                index++;
-                break;
-            case PARENTHESES_OPEN:
-                operatorStack[index] = t;
-                index++;
-                break;
-            case PARENTHESES_CLOSE:
-                while (operatorStack[index-1].type != PARENTHESES_OPEN) {
-                    ptr = copyOperation(ptr, operatorStack[index-1].value);
-                    index--;
-                }
-                index--;
+                ptr = copyOperation(ptr, t.value);
                 break;
             case NAME:
                 memcpy(ptr, instructions[PUSHARG].bytes, instructions[PUSHARG].length);
@@ -220,10 +248,6 @@ void* makeFunction(char* string, uint8_t* outBuffer) {
             default:
                 printf("PANIC in makeFunction switch (t.type): default case should be unreachable. have %d as t.type\n", t.type);
         }
-    }
-    while (index > 0) {
-        ptr = copyOperation(ptr, operatorStack[index-1].value);
-        index--;
     }
     *ptr++ = 0x58; // pop rax
     *ptr++ = 0xc3; // ret
@@ -234,6 +258,6 @@ int main() {
     commonBuffer = mmap(NULL, getpagesize(), PROT_READ | PROT_EXEC | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, 0, 0);
     uint8_t* start = commonBuffer;
     f_x myfunc = (f_x) start;
-    start = makeFunction("(5 + 6) * x - 2 * 3", (uint8_t*) myfunc);
-    printf("%d\n", myfunc(1));
+    start = makeFunction("10 + 2", (uint8_t*) myfunc);
+    printf("%lu\n", myfunc(1));
 }
